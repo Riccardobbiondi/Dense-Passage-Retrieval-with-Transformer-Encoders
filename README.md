@@ -1,0 +1,2 @@
+# Dense-Passage-Retrieval-with-Transformer-Encoders
+Since Vaswani et al. (2017), this project investigates Transformer-based document retrieval using learned vector representations. Students implement classical retrieval methods (TF-IDF, BM25), develop core Transformer encoder components, study contrastive learning for Dense Passage Retrieval, and evaluate and compare methods on benchmark datasets
