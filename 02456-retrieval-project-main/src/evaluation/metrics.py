@@ -2,6 +2,61 @@ import math
 
 from src.data_utils.query import Query
 
+
+"""
+Metrics for evaluating retrieval performance.
+
+Conventions
+-----------
+- `relevancies`: binary list in ranked order (1 = relevant, 0 = not relevant),
+  e.g. [0, 1, 0, 1, 0] for one query.
+- `n_relevant`: total number of relevant documents that exist for that query
+  (needed for recall, which cannot be inferred from the retrieved list alone).
+- All per-query metrics only look at the top-k retrieved documents.
+
+
+Metrics
+-------
+Precision@k (P@k)
+    Proportion of relevant documents among the top k retrieved.
+
+Recall@k (R@k)
+    Relevant documents found in the top k, divided by the total number of
+    relevant documents for the query.
+
+Mean Reciprocal Rank (MRR@k)
+    Average over queries of 1 / (rank of the first relevant document),
+    considering only the top k. 0 if none is found.
+
+Mean Average Precision (MAP@k)              [optional extra]
+    Mean over queries of the average precision, considering only the top k.
+
+Normalized Discounted Cumulative Gain (NDCG@k)   [optional extra]
+    Ranking quality that rewards relevant documents placed higher,
+    normalized by the ideal ranking.
+
+
+Functions
+---------
+For query:
+    precision_at_k(relevancies, k)
+    recall_at_k(relevancies, n_relevant, k)
+    reciprocal_rank(relevancies, k)
+
+Across queries:
+    evaluate(all_relevancies, all_n_relevant, k)
+        Averages each per-query metric over all queries.
+
+Reporting:
+    metrics_summary(all_relevancies, all_n_relevant, ks)
+        Returns a dict {metric_name: score}.
+    metrics_table(all_relevancies, all_n_relevant, ks)
+        Returns the same scores as a formatted table.
+    compare_metrics(results_by_method, all_n_relevant, ks)
+        Side-by-side comparison of several retrieval methods
+        (e.g. TF-IDF vs BM25 vs DPR) in a single table.
+"""
+
 def calculateRecall(relevancies: list[bool], query: Query):
     return sum(relevancies) / min(len(relevancies), query.getNumberOfRelevantDocuments())
 
