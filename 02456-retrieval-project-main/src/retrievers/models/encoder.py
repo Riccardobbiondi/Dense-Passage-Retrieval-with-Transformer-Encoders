@@ -145,10 +145,11 @@ class ParallelNeuralNetwork(nn.Module):
         x = self.W_N(x)
         return x
 
-def attention(query, key, value, dropout=None): # General attention or just for the encoder? otherwise we need the mask
+def attention(query, key, value, tau=None, dropout=None): # General attention or just for the encoder? otherwise we need the mask
     """
     Compute the Scaled Dot Product attention
     """
+
     d_k = query.size(-1)
     # Normalized attention
     scores = torch.matmul(query, key.transpose(-2, -1)) / sqrt(d_k)
@@ -174,7 +175,7 @@ class PositionalEncoding(nn.Module):
         positional_encoding = positional_encoding.unsqueeze(0)
         self.register_buffer('pe', positional_encoding)
         
-    # Note that this does not have to be updated. How to avoid this?
+    # register_buffer tells PyTorch to not update the positional encoding during training
     def forward(self, x):
         x = x + self.pe[:, :x.size(1)]
         return self.dropout(x)
