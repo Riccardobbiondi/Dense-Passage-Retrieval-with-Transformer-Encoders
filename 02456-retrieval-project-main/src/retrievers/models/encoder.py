@@ -15,7 +15,7 @@ from math import log
 # The embeddings are trained through contrastive learning during the training phase
 
 class TransformerEncoder(nn.Module):
-    def __init__(self, n_layers: int, n_heads: int, emb_dim: int, hidden_dim: int, feed_forward_dim: int, pooling_type: str = 'mean', dropout: float = 0.1):
+    def __init__(self, n_layers: int, n_heads: int, emb_dim: int, hidden_dim: int, feed_forward_dim: int, pooling_type: str = 'cls', dropout: float = 0.1):
         super(TransformerEncoder, self).__init__()
         self.n_layers = n_layers
         self.n_heads = n_heads
@@ -33,7 +33,7 @@ class TransformerEncoder(nn.Module):
         self.layers = nn.ModuleList([EncoderLayer(self.n_heads, self.emb_dim, self.hidden_dim, self.feed_forward_dim, self.dropout) for _ in range(self.n_layers)])
 
     # Note: I modified this, so when initializing the transformerEncoder we need to pass cfg.model.pooling_type as pooling argument.
-    def pool(self, x):
+    def pool(self, x, mask=None):
         """
         Given a batch_size x sequence_length x emb_dim tensor, pool the input along the sequence_length dimension 
         Returns: A pooled vector of shape batch_size x emb_dim
@@ -42,9 +42,12 @@ class TransformerEncoder(nn.Module):
             return x[:,0,:]
         
         elif self.pooling_type == 'max':
+            if mask is not None:
+                x = x.masked_fill(mask.unsqueeze(-1) == 0, float('-inf'))
             # returns a tensor. If both indeces and values are needed as output, remove [0]
             return torch.max(x, dim=1)[0]
         
+        # I don't really know how to consider this in the case there is a mask
         elif self.pooling_type == 'mean':
             return torch.mean(x,dim=1)
 

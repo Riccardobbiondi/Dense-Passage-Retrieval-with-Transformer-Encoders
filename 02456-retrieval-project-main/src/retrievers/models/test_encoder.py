@@ -75,12 +75,9 @@ def test_encoder():
     assert output_pnn.shape == batch.shape
 
 def test_attention():
-    # Test the attention function
-    # Q, V and K is a sequence of length 8 and embedding of length 128
+    # Test the attention function by computing the attention matrix for a query with itself
     query = torch.rand(16, 128)
-    key = torch.rand(16, 128)
-    value = torch.rand(16, 128)
-    output_attention, p_attn = encoder.attention(query, key, value)
+    output_attention, p_attn = encoder.attention(query, query, query)
     print(f"Output shape of the attention function: {output_attention.shape}")
     print(f"Attention weights shape: {p_attn.shape}")
     plot_attention_map(p_attn.numpy(), queries_labels=[""], keys_labels=[""], print_values=False, color_bar=True)
