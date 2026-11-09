@@ -15,44 +15,47 @@ from math import log
 # The embeddings are trained through contrastive learning during the training phase
 
 class TransformerEncoder(nn.Module):
-    def __init__(self, n_layers: int, n_heads: int, emb_dim: int, hidden_dim: int, feed_forward_dim: int):
+    def __init__(self, n_layers: int, n_heads: int, emb_dim: int, hidden_dim: int, feed_forward_dim: int, pooling_type: str = 'mean', dropout: float = 0.1):
         super(TransformerEncoder, self).__init__()
         self.n_layers = n_layers
         self.n_heads = n_heads
         self.emb_dim =    emb_dim
         self.hidden_dim = hidden_dim
         self.feed_forward_dim = feed_forward_dim
+        self.dropout = dropout
+        self.pooling_type = pooling_type
         self.setup_model()
 
     def setup_model(self):
         """
         Instantiate the model.
         """
-        # Is this ok??
-        self.model = nn.Sequential(*[EncoderLayer(self.n_heads, self.emb_dim, self.hidden_dim, self.feed_forward_dim) for _ in range(self.n_layers)])
+        self.layers = nn.ModuleList([EncoderLayer(self.n_heads, self.emb_dim, self.hidden_dim, self.feed_forward_dim, self.dropout) for _ in range(self.n_layers)])
 
+    # Note: I modified this, so when initializing the transformerEncoder we need to pass cfg.model.pooling_type as pooling argument.
     def pool(self, x):
         """
         Given a batch_size x sequence_length x emb_dim tensor, pool the input along the sequence_length dimension 
         Returns: A pooled vector of shape batch_size x emb_dim
         """
-        if self.cfg.model.pooling_type == 'cls':
+        if self.pooling_type == 'cls':
             return x[:,0,:]
         
-        elif self.cfg.model.pooling_type == 'max':
-            # returns a tensor. I don0t know if we want the value or a tensor
-            # if a value is needed, just use .value or smth
-            return torch.max(x, dim=1)
+        elif self.pooling_type == 'max':
+            # returns a tensor. If both indeces and values are needed as output, remove [0]
+            return torch.max(x, dim=1)[0]
         
-        elif self.cfg.model.pooling_type == 'mean':
+        elif self.pooling_type == 'mean':
             return torch.mean(x,dim=1)
 
     # Assume that x is already embedded
-    def forward(self, x: torch.tensor) -> torch.tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor =None) -> torch.tensor:
         """
         Run a forward pass on the model
         """
-        return self.model(x)
+        for layer in self.layers:
+            x = layer(x)
+        return x
 
 class LayerNorm(nn.Module):
     """LayerNorm Layer. Normalizes each embedding in the batch separately"""
@@ -72,7 +75,7 @@ class MultiHeadAttentionLayer(nn.Module):
     """
     Multi Head Attention Layer. Takes as input query, key and value and computes in parallel the attention on a subset of the embedding dimension
     """
-    def __init__(self, n_heads: int, emb_dim: int, dropout=0.1):
+    def __init__(self, n_heads: int, emb_dim: int,dropout=0.1):
         super(MultiHeadAttentionLayer, self).__init__()
         # remember that the shape of the input is [batch_size, embedding_dimension]
         assert emb_dim % n_heads == 0
@@ -87,14 +90,16 @@ class MultiHeadAttentionLayer(nn.Module):
         self.attn = None
         self.dropout = nn.Dropout(p=dropout)
         
-    def forward(self, query, key, value):
+    def forward(self, query, key, value, mask = None):
         batch_num = query.size(0)
         # The output of the linear layers giving the query, key and values need to be shaped [batch_size, heads, embedding_size / number_heads]
         query = self.linear_q(query).view(batch_num, -1, self.n_heads, self.emb_dim_k).transpose(1, 2)
         key = self.linear_k(key).view(batch_num, -1, self.n_heads, self.emb_dim_k).transpose(1, 2)
         value = self.linear_v(value).view(batch_num, -1, self.n_heads, self.emb_dim_k).transpose(1, 2)
+        if mask is not None:
+            mask = mask[:, None, None, :]
         
-        x, self.attn = attention(query, key, value, 
+        x, self.attn = attention(query, key, value, mask=mask,
                                  dropout=self.dropout)
         
         # Concatenation step
@@ -106,18 +111,19 @@ class EncoderLayer(nn.Module):
     """
     Encoder Layer. Composed by a multihead self-attention, LayerNorm and a FeedForward Layer, with residual connections.
     """
-    def __init__(self, n_heads: int, emb_dim: int, hidden_dim: int, feed_forward_dim: int):
+    def __init__(self, n_heads: int, emb_dim: int, hidden_dim: int, feed_forward_dim: int, dropout: float):
         super(EncoderLayer, self).__init__()
-        self.layerNorm1 = LayerNorm(emb_dim, emb_dim)
-        self.layerNorm2 = LayerNorm(emb_dim, emb_dim)
-        self.multiHead = MultiHeadAttentionLayer(n_heads, emb_dim)
-        self.pnn = ParallelNeuralNetwork(emb_dim, hidden_dim, feed_forward_dim)
+        self.layerNorm1 = LayerNorm(emb_dim)
+        self.layerNorm2 = LayerNorm(emb_dim)
+        self.multiHead = MultiHeadAttentionLayer(n_heads, emb_dim, dropout=dropout)
+        self.pnn = ParallelNeuralNetwork(emb_dim, hidden_dim, feed_forward_dim, dropout = dropout)
+        self.dropout = nn.Dropout(p=dropout)
 
-    def forward(self, x):
-        y = self.multiHead(x, x, x)
-        x = self.layerNorm1(y + x)
+    def forward(self, x, mask=None):
+        y = self.multiHead(x, x, x, mask)
+        x = self.layerNorm1(self.dropout(y) + x)
         y = self.pnn(x)
-        x = self.layerNorm2(y+x)
+        x = self.layerNorm2(self.dropout(y)+x)
         return x
 
         
@@ -127,7 +133,7 @@ class ParallelNeuralNetwork(nn.Module):
     """
     Parallel Neural Network Layer used in the encoder architecture. Takes as input all embedded sequences in parallel
     """
-    def __init__(self, emb_dim: int, hidden_dim: int, feed_forward_dim: int,  dropout = 0.2):
+    def __init__(self, emb_dim: int, hidden_dim: int, feed_forward_dim: int,  dropout: float):
         super(ParallelNeuralNetwork, self).__init__()
         self.W_1 = nn.Linear(emb_dim, hidden_dim)
         self.hidden_layers = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim) for _ in range(feed_forward_dim)])
@@ -145,7 +151,7 @@ class ParallelNeuralNetwork(nn.Module):
         x = self.W_N(x)
         return x
 
-def attention(query, key, value, tau=None, dropout=None): # General attention or just for the encoder? otherwise we need the mask
+def attention(query, key, value, dropout=None, mask =None): # General attention or just for the encoder? otherwise we need the mask
     """
     Compute the Scaled Dot Product attention
     """
@@ -153,6 +159,9 @@ def attention(query, key, value, tau=None, dropout=None): # General attention or
     d_k = query.size(-1)
     # Normalized attention
     scores = torch.matmul(query, key.transpose(-2, -1)) / sqrt(d_k)
+    if mask is not None:
+        # set the scores of the masked elements to a very low value so that they are not considered in the softmax
+        scores = scores.masked_fill(mask == 0, -1e9)
     p_attn = F.softmax(scores, dim = -1)
     if dropout is not None:
         p_attn = dropout(p_attn)

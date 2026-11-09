@@ -66,9 +66,13 @@ def test_encoder():
     
 
     # Test the parallel neural network layer
-    pnn = encoder.ParallelNeuralNetwork(emb_dim=128, hidden_dim=128, feed_forward_dim=4)
+    # As we can see from the printing value, because the input shape [B, L, d_model] is preserved
+    #  N identical Transformer encoder blocks can be stacked sequentially.
+    # Usually for Lineary Layers we would have to flatten the input, but here we can keep the shape of the input and output the same.
+    pnn = encoder.ParallelNeuralNetwork(emb_dim=128, hidden_dim=128, feed_forward_dim=4, dropout=0.1)
     output_pnn = pnn(batch)
     print(f"Output shape of the parallel neural network layer: {output_pnn.shape}")
+    assert output_pnn.shape == batch.shape
 
 def test_attention():
     # Test the attention function
@@ -81,6 +85,33 @@ def test_attention():
     print(f"Attention weights shape: {p_attn.shape}")
     plot_attention_map(p_attn.numpy(), queries_labels=[""], keys_labels=[""], print_values=False, color_bar=True)
 
+def test_layernorm():
+    x = torch.rand(4, 10, 128) * 5 + 3
+    layer_norm = encoder.LayerNorm(128)
+    y = layer_norm(x)
+    print(f"Output shape of the layer norm: {y.shape}")
+    print(f"Max mean of the normalized embeddings (should be close to 0): {y.mean(-1).abs().max():.2e}")
+    print(f"Mean std of the normalized embeddings (should be close to 1): {y.std(-1).mean():.4f}")
+    assert y.shape == x.shape
+    assert y.mean(-1).abs().max() < 1e-4
+    assert torch.allclose(y.std(-1), torch.ones(4, 10), atol=1e-3)
+
+def test_encoder_layer():
+    # One encoder layer must keep the shape [B, L, d_model] in the forward pass
+    x = torch.rand(8, 10, 128)
+    layer = encoder.EncoderLayer(n_heads=8, emb_dim=128, hidden_dim=128, feed_forward_dim=4, dropout=0.1)
+    output_layer = layer(x)
+    print(f"Output shape of the encoder layer: {output_layer.shape}")
+    assert output_layer.shape == x.shape
+ 
+    model = encoder.TransformerEncoder(n_layers=6, n_heads=8, emb_dim=128, hidden_dim=128, feed_forward_dim=4)
+    output = model(x)
+    print(f"Output shape of the encoder with sequence length 10: {output.shape}")
+    assert output.shape == x.shape
+
+
 if __name__ == '__main__':
     test_encoder()
     test_attention()
+    test_layernorm()
+    test_encoder_layer()
