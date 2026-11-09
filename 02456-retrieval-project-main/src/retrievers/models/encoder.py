@@ -54,7 +54,7 @@ class TransformerEncoder(nn.Module):
         Run a forward pass on the model
         """
         for layer in self.layers:
-            x = layer(x)
+            x = layer(x, mask)
         return x
 
 class LayerNorm(nn.Module):
